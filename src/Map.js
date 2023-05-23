@@ -4,6 +4,7 @@ import Directions from '@mapbox/mapbox-gl-directions/dist/mapbox-gl-directions';
 import { useToast } from "izitoast-react";
 import "izitoast-react/dist/iziToast.css";
 import './Directions.css'
+import { convertToPersianNumber } from './convertToPersianNumber';
 
 mapboxgl.accessToken = "pk.eyJ1IjoiaGFtZWRiaiIsImEiOiJjbGhnMGlkZG8wZTdlM2Z0ZWZja3FuZ2hrIn0.XyE4xvXlVytKa0Y164W8Mw";
 mapboxgl.setRTLTextPlugin(
@@ -20,7 +21,10 @@ let destPos = []
 let symbol = new mapboxgl.Marker();
 let distance = null
 let duration = null
-let marker = null
+let refMarker = null
+let destMarker = null
+let refPopup = null
+let destPopup = null
 
 function Map() {
     const mapContainer = useRef(null);
@@ -28,6 +32,14 @@ function Map() {
     const [submitText, setSubmitText] = useState("تأیید مبدأ");
     const [myPosition, setMyPosition] = useState(null);
     const [done, setDone] = useState(false);
+
+    refPopup = new mapboxgl.Popup({ offset: 25, closeOnClick: false }).setText(
+        'مبدأ'
+    );
+
+    destPopup = new mapboxgl.Popup({ offset: 25, closeOnClick: false }).setText(
+        'مقصد'
+    );
 
     const showGPSErrorMessage = useToast({
         // title: "تیم جدید ایجاد شد",
@@ -72,10 +84,10 @@ function Map() {
     }, []);
 
     useEffect(() => {
-        if (map.current) {
+        if (map.current && !done) {
             symbol.setLngLat([map.current.getCenter().lng, map.current.getCenter().lat]).addTo(map.current);
         }
-    }, [])
+    }, [done])
 
     const directions = new Directions({
         accessToken: mapboxgl.accessToken,
@@ -89,28 +101,39 @@ function Map() {
     });
 
     const handleMarker = () => {
-        if (map.current && !done) {
-            marker = new mapboxgl.Marker().setLngLat([lng, lat]).addTo(map.current);
-        }
+        // if (map.current && !done) {
+
+        // }
         if (submitText === "تأیید مبدأ") {
+            refMarker = new mapboxgl.Marker().setLngLat([lng, lat]).addTo(map.current);
             setSubmitText("تأیید مقصد");
             refPos = [lng, lat]
+            refPopup.setLngLat(refPos).addTo(map.current).on('close', function (e) {
+                handleReset();
+            });
             directions.setOrigin(refPos)
         } else if (submitText === "تأیید مقصد") {
+            destMarker = new mapboxgl.Marker().setLngLat([lng, lat]).addTo(map.current);
             symbol.remove();
-            destPos = [lng, lat]
-            directions.setDestination(destPos)
             setDone(true);
+            destPos = [lng, lat]
+            destPopup.setLngLat(destPos).addTo(map.current).on('close', function (e) {
+                destMarker.remove()
+                setSubmitText("تأیید مقصد")
+                setDone(false)
+                directions.actions.clearDestination();
+            });
+            directions.setDestination(destPos)
             directions.on('route', (e) => {
                 const route = e.route[0];
                 distance = route.distance / 1000; // in meters
                 duration = route.duration / 60; // in seconds
                 if (duration < 60) {
-                    setSubmitText(distance.toFixed(1) + " کیلومتر" + ", " + duration.toFixed(0) + " دقیقه");
+                    setSubmitText(convertToPersianNumber(distance.toFixed(1)) + " کیلومتر" + ", " + convertToPersianNumber(duration.toFixed(0)) + " دقیقه");
                 } else {
                     const minutes = duration % 60;
                     duration = Math.floor(duration / 60);
-                    setSubmitText(distance.toFixed(1) + " کیلومتر" + ", " + duration + " ساعت و" + minutes.toFixed(0) + "دقیقه");
+                    setSubmitText(convertToPersianNumber(distance.toFixed(1)) + " کیلومتر" + ", " + convertToPersianNumber(duration) + " ساعت و" + convertToPersianNumber(minutes.toFixed(0)) + "دقیقه");
                 }
             });
         }
@@ -134,12 +157,29 @@ function Map() {
     }
 
     const handleReset = () => {
-        // if (directions.current) {
-        //     // Remove all routes and markers
-        //     directions.current.removeRoutes();
-        //     directions.current.removeOrigin();
-        //     directions.current.removeDestination();
-        // }
+        const popups = document.getElementsByClassName("mapboxgl-popup");
+        if (popups.length) {
+            console.log(popups)
+            if (popups[1]) {
+                popups[1].remove();
+            }
+            popups[0].remove();
+        }
+        if (destMarker) {
+            directions.actions.clearDestination();
+            setDone(false);
+            destMarker.remove();
+        }
+        if (refMarker) {
+            directions.actions.clearOrigin();
+            setSubmitText("تأیید مبدأ");
+            refMarker.remove();
+            map.current.flyTo({
+                center: refPos,
+                zoom: 13,
+                essential: true
+            })
+        }
     }
 
     return (
